@@ -1,15 +1,15 @@
 const request = require("supertest");
 const express = require("express");
-const authRoutes = require("../routes/authRoutes");
-const User = require("../models/User");
+const authRoutes = require("../../routes/authRoutes");
+const User = require("../../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
 // Mock the authentication middleware
-jest.mock("../middlewares/authMiddleware", () => (req, res, next) => next());
+jest.mock("../../middlewares/authMiddleware", () => (req, res, next) => next());
 
 // Mock the User model
-jest.mock("../models/User");
+jest.mock("../../models/User");
 
 // Mock bcrypt
 jest.mock("bcryptjs");
@@ -28,8 +28,22 @@ describe("Auth Routes", () => {
 
   test("GET /auth/users - should return a list of users", async () => {
     const mockUsers = [
-      { username: "user1", email: "user1@example.com" },
-      { username: "user2", email: "user2@example.com" },
+      {
+        username: "user1",
+        email: "user1@example.com",
+        firstName: "John",
+        lastName: "Doe",
+        mobileNumber: "1234567890",
+        gender: "male",
+      },
+      {
+        username: "user2",
+        email: "user2@example.com",
+        firstName: "Jane",
+        lastName: "Smith",
+        mobileNumber: "0987654321",
+        gender: "female",
+      },
     ];
 
     User.find.mockReturnValue({
@@ -41,8 +55,6 @@ describe("Auth Routes", () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual(mockUsers);
     expect(User.find).toHaveBeenCalledTimes(1);
-    console.log("Mocked User.find called");
-    console.log("Mocked User.find resolved with:", mockUsers);
   });
 
   test("GET /auth/users - should handle server error", async () => {
@@ -55,7 +67,6 @@ describe("Auth Routes", () => {
     expect(response.status).toBe(500);
     expect(response.body).toEqual({ message: "Server error" });
     expect(User.find).toHaveBeenCalledTimes(1);
-    console.log("Mocked User.find called");
   });
 
   // Tests for register endpoint
@@ -65,12 +76,17 @@ describe("Auth Routes", () => {
       username: "testuser",
       email: "test@example.com",
       password: "password123",
+      confirmPassword: "password123",
+      firstName: "Test",
+      lastName: "User",
+      mobileNumber: "1234567890",
+      gender: "male",
     };
 
     const hashedPassword = "hashedpassword123";
 
     // Mock User.findOne to return null (no existing user)
-    User.findOne.mockResolvedValue(null);
+    User.findOne.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
 
     // Mock bcrypt.hash
     bcrypt.hash.mockResolvedValue(hashedPassword);
@@ -96,8 +112,37 @@ describe("Auth Routes", () => {
       username: userData.username,
       email: userData.email,
       password: hashedPassword,
+      firstName: userData.firstName,
+      lastName: userData.lastName,
+      mobileNumber: userData.mobileNumber,
+      gender: userData.gender,
     });
     expect(saveMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("POST /auth/register - should return error if passwords don't match", async () => {
+    // Arrange
+    const userData = {
+      username: "testuser",
+      email: "test@example.com",
+      password: "password123",
+      confirmPassword: "different",
+      firstName: "Test",
+      lastName: "User",
+      mobileNumber: "1234567890",
+      gender: "male",
+    };
+
+    // Act
+    const response = await request(app)
+      .post("/auth/register")
+      .send(userData)
+      .set("Content-Type", "application/json");
+
+    // Assert
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ message: "Passwords don't match" });
+    expect(User.findOne).not.toHaveBeenCalled();
   });
 
   test("POST /auth/register - should return error if email already exists", async () => {
@@ -106,6 +151,11 @@ describe("Auth Routes", () => {
       username: "existinguser",
       email: "existing@example.com",
       password: "password123",
+      confirmPassword: "password123",
+      firstName: "Existing",
+      lastName: "User",
+      mobileNumber: "1234567890",
+      gender: "male",
     };
 
     // Mock User.findOne to return an existing user
@@ -124,12 +174,49 @@ describe("Auth Routes", () => {
     expect(bcrypt.hash).not.toHaveBeenCalled();
   });
 
+  test("POST /auth/register - should return error if username already taken", async () => {
+    // Arrange
+    const userData = {
+      username: "existinguser",
+      email: "new@example.com",
+      password: "password123",
+      confirmPassword: "password123",
+      firstName: "New",
+      lastName: "User",
+      mobileNumber: "1234567890",
+      gender: "male",
+    };
+
+    // Mock User.findOne to return null for email check, but return a user for username check
+    User.findOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ _id: "123", username: userData.username });
+
+    // Act
+    const response = await request(app)
+      .post("/auth/register")
+      .send(userData)
+      .set("Content-Type", "application/json");
+
+    // Assert
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ message: "Username already taken" });
+    expect(User.findOne).toHaveBeenCalledWith({ email: userData.email });
+    expect(User.findOne).toHaveBeenCalledWith({ username: userData.username });
+    expect(bcrypt.hash).not.toHaveBeenCalled();
+  });
+
   test("POST /auth/register - should handle server error", async () => {
     // Arrange
     const userData = {
       username: "testuser",
       email: "test@example.com",
       password: "password123",
+      confirmPassword: "password123",
+      firstName: "Test",
+      lastName: "User",
+      mobileNumber: "1234567890",
+      gender: "male",
     };
 
     // Mock User.findOne to throw an error
@@ -158,6 +245,10 @@ describe("Auth Routes", () => {
       _id: "user123",
       email: loginData.email,
       password: "hashedpassword123",
+      firstName: "Test",
+      lastName: "User",
+      mobileNumber: "1234567890",
+      gender: "male",
     };
 
     const mockToken = "jwt-token-123";
@@ -213,7 +304,7 @@ describe("Auth Routes", () => {
 
     // Assert
     expect(response.status).toBe(400);
-    expect(response.body).toEqual({ message: "User not found" });
+    expect(response.body).toEqual({ message: "user not found" });
     expect(User.findOne).toHaveBeenCalledWith({ email: loginData.email });
     expect(bcrypt.compare).not.toHaveBeenCalled();
   });
@@ -229,6 +320,10 @@ describe("Auth Routes", () => {
       _id: "user123",
       email: loginData.email,
       password: "hashedpassword123",
+      firstName: "Test",
+      lastName: "User",
+      mobileNumber: "1234567890",
+      gender: "male",
     };
 
     // Mock User.findOne
@@ -245,7 +340,7 @@ describe("Auth Routes", () => {
 
     // Assert
     expect(response.status).toBe(400);
-    expect(response.body).toEqual({ message: "Invalid email or password" });
+    expect(response.body).toEqual({ message: "invalid email or password" });
     expect(User.findOne).toHaveBeenCalledWith({ email: loginData.email });
     expect(bcrypt.compare).toHaveBeenCalledWith(
       loginData.password,
